@@ -20,6 +20,8 @@ const SYSCALL_YIELD: usize = 124;
 const SYSCALL_GET_TIME: usize = 169;
 /// trace syscall
 const SYSCALL_TRACE: usize = 410;
+/// task info syscall
+const SYSCALL_TASK_INFO: usize = 410;
 
 mod fs;
 mod process;
@@ -27,14 +29,34 @@ mod process;
 use fs::*;
 use process::*;
 
+use crate::task::TASK_MANAGER;
+
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
+    record_syscall(syscall_id);
+
     match syscall_id {
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
         SYSCALL_EXIT => sys_exit(args[0] as i32),
         SYSCALL_YIELD => sys_yield(),
         SYSCALL_GET_TIME => sys_get_time(args[0] as *mut TimeVal, args[1]),
         SYSCALL_TRACE => sys_trace(args[0], args[1], args[2]),
+        SYSCALL_TASK_INFO => sys_task_info(args[0], args[1] as *mut TaskInfo),
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
+    }
+}
+
+fn record_syscall(syscall_id: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    let task = &mut inner.tasks[current];
+
+    if let Some(stat) = task.syscall_stats.iter_mut().find(|s| s.id == syscall_id) {
+        stat.times += 1;
+    } else {
+        if let Some(stat) = task.syscall_stats.iter_mut().find(|s| s.id == 0) {
+            stat.id = syscall_id;
+            stat.times = 1;
+        }
     }
 }
